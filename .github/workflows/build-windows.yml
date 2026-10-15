@@ -1,0 +1,46 @@
+# بناء ملف التثبيت AdsAlfajrManager-Setup-<version>.exe على Windows
+# يُنزَّل من تبويب Actions ← آخر تشغيل ← Artifacts. وعند دفع وسم v* يُرفق بإصدار (Release).
+name: Build Windows installer
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master, 'claude/**']
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - run: npm ci
+      - run: npm test
+      - name: Generate icons
+        run: npx electron scripts/make-icons.js
+      - name: Build installer
+        run: npm run dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AdsAlfajrManager-Setup
+          path: app/dist/*.exe
+          if-no-files-found: error
+
+      - name: Attach to release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: app/dist/*.exe

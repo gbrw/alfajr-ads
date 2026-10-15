@@ -94,6 +94,7 @@
         "en_US"
       ],
       "multiLanguageInstaller": false
-    }
+    },
+    "publish": null
   }
 }
