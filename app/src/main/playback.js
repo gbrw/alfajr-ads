@@ -3,13 +3,15 @@
  * منسّق التشغيل ذي الأولوية (الأذان، التنبيه، الإعلانات، الأذكار).
  * التسلسل المعتمد (من النظام القديم):
  *   خفض/إيقاف الخلفية بتدرّج ← صمت قبل (2ث) ← تشغيل بالصوت المحدد ← صمت بعد (2ث) ← إعادة الخلفية بتدرّج.
- * الأولويات: الأذان 0 > الإعلان الطارئ 1 > الأذكار 2 > الإعلان الاعتيادي 3.
+ * الأولويات: الإعلان (الطارئ ثم الاعتيادي) > الأذان > التنبيه قبل الأذان > الأذكار > صوت المتصفح.
  * الحدث الأعلى يقاطع الأدنى، والمقاطَع يُعاد إلى الطابور ويُستأنف من موضعه (بلا ضياع).
+ * مستوى الصوت يُقرأ من الإعدادات لحظياً: تغييره ينعكس فوراً على المقطع الجاري (applyVolumes).
  */
 const { EventEmitter } = require('events');
 const T = require('../shared/time12');
 const { AudioEngine } = require('./audio-engine');
 const { windowAllows } = require('./planner');
+const V = require('./volume');
 
 const TYPE_CAT = { adhan: 'adhan', preadhan: 'preadhan', ad: 'ads', azkar: 'azkar' };
 const WINDOW_NAMES = { adhan: 'الأذان', ads: 'الإعلانات', azkar: 'الأذكار', background: 'الخلفية' };
@@ -26,7 +28,6 @@ class Playback extends EventEmitter {
     this.phase = 'idle'; // idle | ducking | silence-before | playing | silence-after | restoring
     this.running = false;
     this.stopped = false;
-    this.muted = false;
     this.bgDucked = false;
     this.bgPaused = false;
     this.holdDuckSeries = new Set();
@@ -49,6 +50,21 @@ class Playback extends EventEmitter {
   }
 
   get s() { return this.db.get().settings; }
+  get muted() { return !!this.s.mute?.master; }
+
+  _volumeFor(job) { return V.effective(this.s, job.volumeClass); }
+
+  /** يطبّق المستويات الحالية فوراً على الصوت الجاري (الأولوية والخلفية) دون المساس بالخفض أو الإيقاف المؤقت. */
+  async applyVolumes() {
+    const c = this.current;
+    const tasks = [this.background.applyLevel(0).catch(() => {})];
+    this.background.browser.setMuted(V.isMuted(this.s, 'background'));
+    if (c && this.phase === 'playing' && !c.preempted) {
+      tasks.push(this.audio.call('setVolume', { channel: 'priority', volume: this._volumeFor(c.job) }).catch(() => {}));
+    }
+    await Promise.all(tasks);
+    this.emit('state');
+  }
 
   _onAudio(kind, p) {
     if (p.channel !== 'priority' || !this.current || p.token !== this.current.token || !this._waitEnd) return;
@@ -148,9 +164,12 @@ class Playback extends EventEmitter {
     const url = AudioEngine.urlFor(job.audio);
     if (!url) {
       this.logger.error(cat, `الملف الصوتي غير موجود: ${this._label(job)}${job.audio ? ' (' + job.audio + ')' : ' (لم يُحدَّد ملف)'}`, { status: 'fail' });
-      this.emit('alert', { level: 'error', message: `الملف الصوتي غير موجود: ${job.label}` });
+      this.emit('alert', { level: 'error', message: job.audio ? `الملف الصوتي غير موجود: ${job.label}` : `لم يُحدَّد ملف صوتي: ${job.label} — اختره من شاشة المواقيت والأذان` });
       return;
     }
+
+    // بدء الأذان يُلغي تنبيهه المتبقي (لا معنى لاستئناف التنبيه بعد الأذان نفسه)
+    if (job.type === 'adhan') this._dropPreAdhanFor(job);
 
     this.current = { job, token: `p-${job.seq}-${Date.now()}`, position: job.resumeAt, duration: 0, preempted: false };
 
@@ -169,26 +188,30 @@ class Playback extends EventEmitter {
     this.phase = 'silence-before'; this.emit('state');
     const silenceMs = justDucked ? (Number(st.ducking.silenceBeforePrioritySeconds) || 0) * 1000 : 0;
     const startAt = Math.max(this.clock.now().getTime() + silenceMs, job.playAt || 0);
-    while (this.clock.now().getTime() < startAt) {
-      // حدث أعلى أولوية وصل أثناء الانتظار ← يتقدّم، ويعود هذا للطابور دون أن يبدأ
+    for (;;) {
+      // حدث أعلى أولوية وصل أثناء الخفض أو الانتظار ← يتقدّم، ويعود هذا للطابور دون أن يبدأ
       if (this.queue.some((j) => j.priority < job.priority)) {
         this.queue.push({ ...job, seq: ++this.seq });
         this.queue.sort((a, b) => a.priority - b.priority || a.seq - b.seq);
         this.current = null;
         return;
       }
+      if (this.clock.now().getTime() >= startAt) break;
       await this._sleep(Math.min(100, startAt - this.clock.now().getTime()));
     }
 
     // 5) التشغيل
-    const vol = Math.max(0, Math.min(1, st.volume.master * (st.volume[job.volumeClass] ?? 1)));
+    const vol = this._volumeFor(job);
     this.phase = 'playing'; this.emit('state');
     const endPromise = new Promise((resolve) => { this._waitEnd = resolve; });
     let result;
     try {
       const r = await this.audio.call('play', { channel: 'priority', url, volume: vol, startAt: job.resumeAt, token: this.current.token });
       this.current.duration = r?.duration || 0;
-      this.logger.info(cat, `بدء تشغيل ${this._label(job)}${job.resumeAt ? ` (استئناف من ${T.formatDuration(job.resumeAt)})` : ''} — المدة ${T.formatDuration(r?.duration)}، الصوت ${Math.round(vol * 100)}%${job.manual ? ' [تشغيل يدوي]' : ''}`);
+      // ربما تغيّر المستوى أثناء تحميل الملف
+      const nowVol = this._volumeFor(job);
+      if (nowVol !== vol) this.audio.call('setVolume', { channel: 'priority', volume: nowVol }).catch(() => {});
+      this.logger.info(cat, `بدء تشغيل ${this._label(job)}${job.resumeAt ? ` (استئناف من ${T.formatDuration(job.resumeAt)})` : ''} — المدة ${T.formatDuration(r?.duration)}، الصوت ${Math.round(nowVol * 100)}%${V.isMuted(st, job.volumeClass) ? ' (مكتوم)' : ''}${job.manual ? ' [تشغيل يدوي]' : ''}`);
       this.emit('event-start', job);
       result = await endPromise;
     } catch (e) {
@@ -216,6 +239,13 @@ class Playback extends EventEmitter {
     // 7) صمت بعد
     this.phase = 'silence-after'; this.emit('state');
     await this._sleep((Number(st.ducking.silenceAfterSeconds) || 0) * 1000);
+  }
+
+  _dropPreAdhanFor(adhanJob) {
+    const day = String(adhanJob.id).split('|')[0];
+    const before = this.queue.length;
+    this.queue = this.queue.filter((j) => !(j.type === 'preadhan' && j.refId === adhanJob.refId && String(j.id).split('|')[0] === day));
+    if (this.queue.length !== before) this.logger.info('preadhan', `أُلغي ما تبقّى من التنبيه قبل ${adhanJob.label} لأن الأذان بدأ`);
   }
 
   _scheduleNextRepeat(job, now, skipped) {
@@ -280,12 +310,20 @@ class Playback extends EventEmitter {
     this.emit('state');
   }
 
-  async setMuted(m) {
-    this.muted = !!m;
-    await this.audio.call('mute', { muted: this.muted }).catch(() => {});
-    this.background.browser.setMuted(this.muted);
-    this.logger.info('system', this.muted ? 'تم كتم الصوت' : 'تم إلغاء الكتم');
-    this.emit('state');
+  /** كتم/إلغاء كتم الكل (المستوى العام) — محفوظ في الإعدادات. */
+  async setMuted(m) { return this.setClassMuted('master', m); }
+
+  async setClassMuted(cls, m) {
+    if (!V.KEYS.includes(cls)) throw new Error('نوع صوت غير معروف');
+    this.db.update((d) => { d.settings.mute[cls] = !!m; }, { silent: true });
+    await this.applyVolumes();
+    this.logger.info('system', `${m ? 'تم كتم' : 'تم إلغاء كتم'} ${cls === 'master' ? 'كل الأصوات' : V.NAMES[cls]}`);
+  }
+
+  async setClassVolume(cls, level) {
+    if (!V.KEYS.includes(cls)) throw new Error('نوع صوت غير معروف');
+    this.db.update((d) => { d.settings.volume[cls] = V.clamp(level); }, { silent: true });
+    await this.applyVolumes();
   }
 
   /** إيقاف الحدث الحالي فقط (من زر "تخطي"). */

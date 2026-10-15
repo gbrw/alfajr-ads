@@ -6,11 +6,23 @@
  *     يُعاد تطبيقه دورياً وبعد كل تنقل لأن المواقع تعيد ضبط الصوت وحدها.
  *  2) عند فشل التحقق: إيقاف مؤقت للعناصر ثم استئنافها لاحقاً.
  *  3) الملاذ الأخير: كتم صوت محتوى المتصفح بالكامل (setAudioMuted).
+ * تسجيل الدخول إلى Google: يتم في صفحة Google الرسمية نفسها (بلا تعديل عليها)، والكوكيز في جلسة
+ * دائمة تُكتب إلى القرص فور تغيّرها وعند الخروج. إن رفضت Google الدخول من متصفح مدمج نكتشف صفحة الرفض
+ * ونعرض البدائل المدعومة بدلاً من محاولة الالتفاف على فحص الأمان.
  */
-const { WebContentsView, session } = require('electron');
+const { WebContentsView, BrowserWindow, session } = require('electron');
 const { EventEmitter } = require('events');
 
 const PARTITION = 'persist:browser';
+const SIGNIN_URL = 'https://accounts.google.com/ServiceLogin?service=youtube&continue=' + encodeURIComponent('https://www.youtube.com/signin?action_handle_signin=true&next=%2F');
+const GOOGLE_AUTH_HOST = /^accounts\.google\.[a-z.]+$/i;
+// صفحة رفض Google لتسجيل الدخول من المتصفحات المدمجة ("This browser or app may not be secure")
+const REJECTED_URL = /^https:\/\/accounts\.google\.[a-z.]+\/(v\d+\/)?signin\/rejected/i;
+const REJECTED_TEXT = /may not be secure|This browser or app|قد لا يكون هذا المتصفح|المتصفح أو التطبيق.*آمن/i;
+// كوكيز تدل على جلسة يوتيوب مسجّلة
+const YT_LOGIN_COOKIES = ['LOGIN_INFO', 'SAPISID', '__Secure-3PAPISID'];
+
+const hostOf = (url) => { try { return new URL(url).hostname; } catch { return ''; } };
 
 const DUCK_SCRIPT = String.raw`(() => {
   if (window.__alfajrDuck) return true;
@@ -86,6 +98,9 @@ class EmbeddedBrowser extends EventEmitter {
     this.mediaPlaying = false;
     this.visible = false;
     this._saveUrlTimer = null;
+    this.signedIn = null;        // null = لم يُفحص بعد
+    this.signinBlocked = false;  // Google رفضت تسجيل الدخول من المتصفح المدمج
+    this.authWindow = null;
   }
 
   get session() { return session.fromPartition(PARTITION); }
@@ -117,9 +132,33 @@ class EmbeddedBrowser extends EventEmitter {
     wc.setMaxListeners(100);
 
     wc.setWindowOpenHandler(({ url }) => {
+      // نوافذ تسجيل الدخول المنبثقة تحتاج window.opener: تُفتح نافذةً حقيقية بنفس الجلسة
+      if (GOOGLE_AUTH_HOST.test(hostOf(url))) {
+        return {
+          action: 'allow',
+          overrideBrowserWindowOptions: {
+            parent: window, width: 520, height: 720, autoHideMenuBar: true, title: 'تسجيل الدخول إلى Google',
+            webPreferences: { session: ses, contextIsolation: true, sandbox: true },
+          },
+        };
+      }
       if (/^https?:/i.test(url)) wc.loadURL(url);
       return { action: 'deny' };
     });
+    wc.on('did-create-window', (child) => {
+      this.authWindow = child;
+      child.on('closed', () => { if (this.authWindow === child) this.authWindow = null; this.refreshSignIn(); });
+      this._watchAuthPage(child.webContents);
+    });
+    this._watchAuthPage(wc);
+
+    // حفظ الجلسة: الكوكيز تُكتب للقرص فور تغيّرها (لا تضيع إن أُغلق البرنامج فجأة)
+    ses.cookies.on('changed', (_e, cookie) => {
+      if (!/(^|\.)(google|youtube)\.[a-z.]+$/i.test(cookie.domain.replace(/^\./, ''))) return;
+      clearTimeout(this._cookieTimer);
+      this._cookieTimer = setTimeout(() => { this.flushSession(); this.refreshSignIn(); }, 1500);
+    });
+    this.refreshSignIn();
     const inject = () => this._inject().catch(() => {});
     wc.on('dom-ready', inject);
     wc.on('did-frame-finish-load', inject);
@@ -166,7 +205,83 @@ class EmbeddedBrowser extends EventEmitter {
 
   _frames() {
     if (!this.alive()) return [];
-    try { return this.view.webContents.mainFrame.framesInSubtree; } catch { return []; }
+    // صفحات تسجيل الدخول لا تُحقن بأي سكربت
+    try { return this.view.webContents.mainFrame.framesInSubtree.filter((f) => !GOOGLE_AUTH_HOST.test(hostOf(f.url))); } catch { return []; }
+  }
+
+  /** يراقب صفحات Google لاكتشاف رفض تسجيل الدخول من المتصفح المدمج. */
+  _watchAuthPage(wc) {
+    const check = async () => {
+      if (wc.isDestroyed()) return;
+      const url = wc.getURL();
+      if (!GOOGLE_AUTH_HOST.test(hostOf(url))) return;
+      let blocked = REJECTED_URL.test(url);
+      if (!blocked) {
+        const text = await Promise.race([
+          wc.mainFrame.executeJavaScript('document.title + " " + (document.body ? document.body.innerText.slice(0, 2000) : "")').catch(() => ''),
+          new Promise((r) => setTimeout(() => r(''), 2000)),
+        ]);
+        blocked = REJECTED_TEXT.test(text) && /signin|ServiceLogin|rejected/i.test(url);
+      }
+      if (blocked && !this.signinBlocked) {
+        this.signinBlocked = true;
+        this.logger.warn('background', 'رفضت Google تسجيل الدخول من المتصفح المدمج ("قد لا يكون هذا المتصفح آمناً") — اعرض البدائل المدعومة من زر "حساب Google"', { status: 'fail' });
+        this.emit('signin-blocked');
+        this.emit('state', this.state());
+      }
+    };
+    wc.on('did-navigate', check);
+    wc.on('did-stop-loading', check);
+  }
+
+  /** يفحص كوكيز يوتيوب لمعرفة هل الجلسة مسجّلة. */
+  async refreshSignIn() {
+    try {
+      const list = await this.session.cookies.get({ domain: 'youtube.com' });
+      const now = list.some((c) => YT_LOGIN_COOKIES.includes(c.name));
+      if (now !== this.signedIn) {
+        const first = this.signedIn === null;
+        this.signedIn = now;
+        if (now) {
+          this.signinBlocked = false;
+          this.logger.info('background', first ? 'جلسة YouTube محفوظة من التشغيل السابق — مسجّل الدخول' : 'تم تسجيل الدخول إلى YouTube — الجلسة محفوظة وستبقى بعد إعادة فتح البرنامج', { status: 'success' });
+          if (this.authWindow && !this.authWindow.isDestroyed()) this.authWindow.close();
+        } else if (!first) {
+          this.logger.info('background', 'تم تسجيل الخروج من YouTube');
+        }
+        this.emit('state', this.state());
+      }
+    } catch { /* الجلسة قيد التهيئة */ }
+    return this.signedIn;
+  }
+
+  /** كتابة الكوكيز وبيانات الجلسة إلى القرص. */
+  async flushSession() {
+    try { await this.session.cookies.flushStore(); } catch { /* ignore */ }
+  }
+
+  /** فتح صفحة تسجيل الدخول الرسمية لـ Google داخل المتصفح المدمج. */
+  signIn() {
+    this.signinBlocked = false;
+    this.navigate(SIGNIN_URL);
+    this.emit('state', this.state());
+  }
+
+  /** تسجيل الخروج: حذف كوكيز Google/YouTube من جلسة المتصفح. */
+  async signOut() {
+    const ses = this.session;
+    const all = await ses.cookies.get({});
+    const mine = all.filter((c) => /(^|\.)(google|youtube)\.[a-z.]+$/i.test(c.domain.replace(/^\./, '')));
+    await Promise.all(mine.map((c) => {
+      const url = `http${c.secure ? 's' : ''}://${c.domain.replace(/^\./, '')}${c.path || '/'}`;
+      return ses.cookies.remove(url, c.name).catch(() => {});
+    }));
+    await this.flushSession();
+    this.signedIn = false;
+    this.signinBlocked = false;
+    this.logger.info('background', `تم تسجيل الخروج من Google/YouTube في المتصفح المدمج (حُذف ${mine.length} ملف تعريف)`);
+    if (/youtube\.com|google\./.test(hostOf(this.view.webContents.getURL()))) this.view.webContents.reload();
+    this.emit('state', this.state());
   }
 
   async _execAll(code) {
@@ -314,8 +429,10 @@ class EmbeddedBrowser extends EventEmitter {
       url: wc.getURL(), title: wc.getTitle(), loading: wc.isLoading(),
       canGoBack: wc.navigationHistory.canGoBack(), canGoForward: wc.navigationHistory.canGoForward(),
       playing: this.isPlaying(), factor: this.factor, hold: this.hold, adMuted: this.adMuted,
+      userMuted: this.userMuted, signedIn: this.signedIn, signinBlocked: this.signinBlocked,
+      onSignInPage: GOOGLE_AUTH_HOST.test(hostOf(wc.getURL())),
     };
   }
 }
 
-module.exports = { EmbeddedBrowser, PARTITION, DUCK_SCRIPT };
+module.exports = { EmbeddedBrowser, PARTITION, DUCK_SCRIPT, SIGNIN_URL, REJECTED_URL, REJECTED_TEXT };

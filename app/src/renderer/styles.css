@@ -200,6 +200,34 @@ table.tbl { width: 100%; border-collapse: collapse; font-size: 14px; }
 .browser-host { flex: 1; position: relative; background: #000; }
 .browser-host .placeholder { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--text-3); }
 
+.browser-main { flex: 1; display: flex; min-height: 0; }
+.browser-main .browser-host { min-width: 0; }
+.browser-side { width: 330px; flex: none; overflow-y: auto; background: var(--bg-2); border-inline-end: 1px solid var(--line); padding: 12px; }
+.browser-side[hidden] { display: none; }
+.browser-signin { padding: 6px 12px; background: var(--bg-2); border-bottom: 1px solid var(--line); }
+.browser-signin .notice { align-items: center; }
+.browser-signin .notice > div { flex: 1; }
+
+/* ───── لوحة التحكم بالأصوات ───── */
+.vp { display: flex; flex-direction: column; gap: 6px; }
+.vp-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+.vp-head svg { width: 18px; height: 18px; color: var(--accent); }
+.vp-head .muted { flex-basis: 100%; }
+.vp-row { display: grid; grid-template-columns: auto 1fr 44px; grid-template-areas: "mute label val" "mute range range"; gap: 2px 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius-sm); background: var(--panel); }
+.vp-row.master { border-color: var(--accent); }
+.vp-row .vp-mute { grid-area: mute; }
+.vp-row .vp-mute svg { width: 18px; height: 18px; }
+.vp-row .vp-mute.on { color: var(--bad); border-color: var(--bad); }
+.vp-label { grid-area: label; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-weight: 500; }
+.vp-hint { flex-basis: 100%; font-size: 11.5px; color: var(--text-3); font-weight: 400; }
+.vp-live { font-size: 11px; padding: 0 8px; }
+.vp-live[hidden] { display: none; }
+.vp-row input[type=range] { grid-area: range; width: 100%; accent-color: var(--accent); }
+.vp-val { grid-area: val; text-align: left; font-variant-numeric: tabular-nums; color: var(--text-2); }
+.vp-row.is-muted input[type=range], .vp-row.is-muted .vp-val { opacity: .4; }
+.vp-row.dimmed { opacity: .55; }
+.vp-order { font-size: 12px; color: var(--text-3); margin-top: 4px; line-height: 1.6; }
+
 /* ───── السجلات ───── */
 .log-list { font-size: 13.5px; }
 .log-row { display: grid; grid-template-columns: 196px 66px 120px 1fr; gap: 10px; padding: 7px 12px; border-bottom: 1px solid var(--line); align-items: start; border-inline-start: 3px solid transparent; }

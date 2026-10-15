@@ -22,7 +22,9 @@ function defaultDb() {
     meta: { createdAt: null, migratedAt: null, migrationSource: null },
     settings: {
       city: 'الرمادي',
-      volume: { master: 0.7, adhan: 1.0, ads: 0.7, azkar: 0.7, background: 0.7 },
+      volume: { master: 0.7, ads: 0.7, adhan: 1.0, preadhan: 1.0, azkar: 0.7, background: 0.7 },
+      // كتم مستقل لكل نوع (يُحفظ ويُستعاد عند فتح البرنامج)
+      mute: { master: false, ads: false, adhan: false, preadhan: false, azkar: false, background: false },
       ducking: {
         mode: 'pause', // pause = إيقاف كامل بتدرّج ثم استئناف (طلب المشرف)، duck = خفض إلى مستوى
         duckedLevel: 0.4,
@@ -106,6 +108,9 @@ class Db extends EventEmitter {
       this.data = defaultDb();
       this.data.meta.createdAt = new Date().toISOString();
     }
+    // مستوى التنبيه قبل الأذان كان مشتركاً مع الأذان: نبدأ من نفس قيمة الأذان
+    const vol = this.data.settings?.volume;
+    if (vol && vol.preadhan === undefined && vol.adhan !== undefined) vol.preadhan = vol.adhan;
     deepDefaults(this.data, defaultDb());
     return this;
   }

@@ -4,6 +4,19 @@
   const KEYS = ['fajr', 'sunrise', 'dhuhr', 'asr', 'maghrib', 'isha'];
   const MONTHS = ['كانون الثاني', 'شباط', 'آذار', 'نيسان', 'أيار', 'حزيران', 'تموز', 'آب', 'أيلول', 'تشرين الأول', 'تشرين الثاني', 'كانون الأول'];
   let root = null;
+  let issuesBox = null;
+  let issuesKey = '';
+
+  /** تنبيه واضح لكل تنبيه قبل الأذان مفعّل بلا ملف أو بملف مفقود (يتحدّث لحظياً). */
+  function paintIssues(list) {
+    if (!issuesBox) return;
+    const key = JSON.stringify(list || []);
+    if (key === issuesKey) return;
+    issuesKey = key;
+    issuesBox.replaceChildren(list && list.length
+      ? App.notice('bad', h('div', h('strong', 'التنبيه قبل الأذان لن يعمل:'), h('ul', { style: { margin: '4px 0 0', paddingInlineStart: '18px' } }, list.map((i) => h('li', i.text))), h('div.small', 'اختر ملفاً صوتياً من عمود "ملف التنبيه" أدناه، أو عطّل التنبيه لتلك الصلاة.')))
+      : null);
+  }
   let month = new Date().getMonth() + 1;
 
   async function refresh() { App.db = await call('db:get'); await render(); }
@@ -41,19 +54,32 @@
       draw();
       const collect = () => ({ key: p.key, enabled: en.checked, audio: st.audio, preAdhan: { enabled: preEn.checked, minutesBefore: Number(mins.value), audio: st.pre } });
       const save = () => act('prayers:saveConfig', [[collect()]], 'تم حفظ إعدادات ' + p.name);
-      en.addEventListener('change', save);
-      preEn.addEventListener('change', save);
+      const note = h('div.small');
+      const drawNote = () => {
+        note.replaceChildren(
+          preEn.checked && !en.checked ? h('span.chip.warn', 'الأذان معطّل — لن يعمل التنبيه') : null,
+          preEn.checked && en.checked && !st.pre ? h('span.chip.bad', 'لن يعمل: لم يُحدَّد ملف') : null);
+      };
+      drawNote();
+      en.addEventListener('change', () => { drawNote(); save(); });
+      preEn.addEventListener('change', () => {
+        drawNote();
+        save();
+        if (preEn.checked && !st.pre) App.toast(`التنبيه قبل أذان ${p.name} مفعّل لكن بلا ملف صوتي — اختر ملفاً`, 'warn', 7000);
+      });
       mins.addEventListener('change', save);
-      return h('tr', h('td', h('strong', p.name)), h('td', en), h('td', audioCell), h('td', preEn), h('td', h('div.row', mins, h('span.muted.small', 'دقيقة'))), h('td', preCell));
+      return h('tr', h('td', h('strong', p.name)), h('td', en), h('td', audioCell), h('td', h('div.stack', preEn, note)), h('td', h('div.row', mins, h('span.muted.small', 'دقيقة'))), h('td', preCell));
     });
-    const fajr = db.prayers.find((p) => p.key === 'fajr');
+    issuesBox = h('div');
+    issuesKey = '';
+    paintIssues(db.preAdhanIssues);
     return h('div.card',
       h('div.card-title', h('h2', 'الأذان وتنبيه ما قبل الأذان')),
-      fajr && fajr.preAdhan.enabled && !fajr.preAdhan.audio ? App.notice('warn', 'ملف تنبيه ما قبل أذان الفجر غير موجود في أرشيف النظام القديم — تُرك فارغاً. الفجر أصلاً معطّل لأن وقته قبل بداية ساعات العمل (07:00 AM).') : null,
+      issuesBox,
       h('table.tbl', { style: { marginTop: '10px' } },
         h('thead', h('tr', h('th', 'الصلاة'), h('th', 'تفعيل'), h('th', 'ملف الأذان'), h('th', 'تنبيه قبل الأذان'), h('th', 'قبل بـ'), h('th', 'ملف التنبيه'))),
         h('tbody', rows)),
-      h('div.hint', { style: { marginTop: '8px' } }, 'الشروق يظهر في الجدول للعرض فقط ولا يُشغَّل له صوت، ويُستخدم مرجعاً لأذكار الصباح.'));
+      h('div.hint', { style: { marginTop: '8px' } }, 'التنبيه يعمل تلقائياً قبل كل أذان مفعّل بعدد الدقائق المحدد. إن تداخل مع الأذان يتوقف التنبيه ويبدأ الأذان (الأذان أعلى أولوية). الشروق يظهر في الجدول للعرض فقط ولا يُشغَّل له صوت، ويُستخدم مرجعاً لأذكار الصباح.'));
   }
 
   function offsetsCard(tbl) {
@@ -154,7 +180,8 @@
 
   App.screens.prayers = {
     async mount(el) { root = el; await render(); },
-    unmount() { root = null; },
+    unmount() { root = null; issuesBox = null; },
+    onState(s) { paintIssues(s.preAdhanIssues); },
     onDb() { /* الحفظ يتم بأزرار صريحة؛ لا نعيد الرسم لتفادي فقدان الإدخال */ },
   };
 })();

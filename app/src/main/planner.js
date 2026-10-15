@@ -1,16 +1,17 @@
 'use strict';
 /*
  * المخطِّط (منطق صافٍ قابل للاختبار): يبني قائمة أحداث يوم معيّن من قاعدة البيانات.
- * الأولويات: الأذان (وتنبيهه) 0، الإعلان الطارئ 1، الأذكار 2، الإعلان الاعتيادي 3.
+ * الأولويات (الأصغر أعلى): الإعلان الطارئ 0، الإعلان الاعتيادي 1، الأذان 2، التنبيه قبل الأذان 3، الأذكار 4.
+ * صوت المتصفح (الخلفية) أدنى من الجميع ويُوقف مؤقتاً أثناء أي منها.
  */
 const T = require('../shared/time12');
 const { getDayTimes } = require('./prayers');
 const { PRAYER_NAMES } = require('./db');
 
-const PRIORITY = { adhan: 0, preadhan: 0, emergencyAd: 1, azkar: 2, ad: 3 };
+const PRIORITY = { emergencyAd: 0, ad: 1, adhan: 2, preadhan: 3, azkar: 4 };
 /** نوع الحدث ← فئة نافذة ساعات العمل والصوت */
 const WINDOW_CLASS = { adhan: 'adhan', preadhan: 'adhan', ad: 'ads', azkar: 'azkar' };
-const VOLUME_CLASS = { adhan: 'adhan', preadhan: 'adhan', ad: 'ads', azkar: 'azkar' };
+const VOLUME_CLASS = { adhan: 'adhan', preadhan: 'preadhan', ad: 'ads', azkar: 'azkar' };
 
 function atDate(date, sec) {
   const d = new Date(date.getFullYear(), date.getMonth(), date.getDate());
@@ -82,20 +83,20 @@ function windowAllows(settings, windowClass, date) {
 }
 
 /**
- * تعارضات الأذكار مع الأذان/تنبيهه: يعيد قائمة نصية للتنبيه في الشاشة.
+ * تعارض حدثين متداخلين زمنياً: الأدنى أولوية يُؤجَّل أو يُوقف ويُستأنف بعد الأعلى.
  * durations: { [audioRel]: seconds }
  */
 function findConflicts(events, durations) {
   const out = [];
   const dur = (e) => durations?.[e.audio] || 0;
-  const high = events.filter((e) => e.type === 'adhan' || e.type === 'preadhan');
-  for (const e of events.filter((x) => x.type === 'azkar' || x.type === 'ad')) {
+  for (const e of events) {
     const start = e.at.getTime();
-    const end = start + dur(e) * 1000;
-    for (const h of high) {
+    const end = Math.max(start + dur(e) * 1000, start + 1000);
+    for (const h of events) {
+      if (h === e || h.priority >= e.priority) continue;
       const hs = h.at.getTime();
-      const he = hs + dur(h) * 1000;
-      if (start < he && hs < Math.max(end, start + 1000)) {
+      const he = Math.max(hs + dur(h) * 1000, hs + 1000);
+      if (start < he && hs < end) {
         out.push({ eventId: e.id, withId: h.id, text: `${e.label} (${T.format12(e.sec)}) يتداخل مع ${h.label} (${T.format12(h.sec)}) — سيُؤجَّل/يُستأنف حسب الأولوية` });
       }
     }
@@ -103,4 +104,19 @@ function findConflicts(events, durations) {
   return out;
 }
 
-module.exports = { planDay, windowAllows, azkarSeconds, adRunsOn, findConflicts, PRIORITY, atDate };
+/**
+ * مشاكل التنبيه قبل الأذان لكل صلاة مفعّلة: ملف غير محدد أو مفقود.
+ * exists(rel) => boolean
+ */
+function preAdhanIssues(db, exists) {
+  const out = [];
+  for (const p of db.prayers || []) {
+    if (!p.enabled || !p.preAdhan?.enabled) continue;
+    const name = p.name || PRAYER_NAMES[p.key];
+    if (!p.preAdhan.audio) out.push({ key: p.key, problem: 'no-file', text: `التنبيه قبل أذان ${name} مفعّل لكن لم يُحدَّد له ملف صوتي — لن يعمل` });
+    else if (!exists(p.preAdhan.audio)) out.push({ key: p.key, problem: 'missing', text: `ملف التنبيه قبل أذان ${name} مفقود (${p.preAdhan.audio}) — لن يعمل` });
+  }
+  return out;
+}
+
+module.exports = { planDay, windowAllows, azkarSeconds, adRunsOn, findConflicts, preAdhanIssues, PRIORITY, VOLUME_CLASS, atDate };

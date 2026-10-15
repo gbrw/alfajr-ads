@@ -1,12 +1,13 @@
 'use strict';
 /*
  * متحكم الخلفية الصوتية: يوحّد المصدرين (المتصفح المدمج / المشغل المحلي).
- * - الصوت الفعلي للخلفية = المستوى العام × مستوى الخلفية × معامل الخفض.
+ * - الصوت الفعلي للخلفية = المستوى العام × مستوى الخلفية × معامل الخفض (صفر عند الكتم).
  * - الخفض والرفع بتدرّج (الافتراضي 3 ثوانٍ).
  * - يمنع تشغيل الخلفية خارج ساعات العمل، وأثناء الإيقاف الطارئ.
  * - عند انقطاع الإنترنت ينتقل تلقائياً للمصدر المحلي إن كان مفعّلاً وفيه تلاوات.
  */
 const { EventEmitter } = require('events');
+const V = require('./volume');
 
 class BackgroundController extends EventEmitter {
   constructor({ db, logger, browser, local }) {
@@ -34,7 +35,8 @@ class BackgroundController extends EventEmitter {
   }
   get blocked() { return this.emergency || this.outsideWindow; }
 
-  baseVolume() { return this.s.volume.master * this.s.volume.background; }
+  /** المستوى العام × مستوى المتصفح/الخلفية، وصفر إن كان أحدهما مكتوماً. */
+  baseVolume() { return V.effective(this.s, 'background'); }
 
   /** يطبّق المستوى الحالي على المصدرين بتدرّج. */
   async applyLevel(fadeMs = 0) {

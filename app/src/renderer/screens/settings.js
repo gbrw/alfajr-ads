@@ -2,6 +2,7 @@
 (function () {
   const { h, icon, act, call } = App;
   let root = null;
+  let volPanel = null;
 
   function slider(label, value, { min = 0, max = 1, step = 0.05, pct = true } = {}) {
     const val = h('span.val');
@@ -25,12 +26,9 @@
     const s = db.settings;
     const info = await call('app:info').catch(() => ({}));
 
-    // الصوت
-    const vMaster = slider('المستوى العام', s.volume.master);
-    const vAdhan = slider('الأذان والتنبيه', s.volume.adhan);
-    const vAds = slider('الإعلانات', s.volume.ads);
-    const vAzkar = slider('الأذكار', s.volume.azkar);
-    const vBg = slider('الخلفية', s.volume.background);
+    // الصوت: نفس لوحة نافذة المتصفح — تُطبَّق فوراً وتُحفظ تلقائياً (خارج زر الحفظ)
+    volPanel = App.volumePanel({ title: false });
+    if (App.state) volPanel.update(App.state);
 
     // الخفض
     const dk = s.ducking;
@@ -61,7 +59,6 @@
     const save = async () => {
       if (twStart.value === twEnd.value && twEn.checked) App.toast('البداية = النهاية تعني السماح طوال اليوم', 'warn');
       await act('settings:save', [{
-        volume: { master: vMaster.value, adhan: vAdhan.value, ads: vAds.value, azkar: vAzkar.value, background: vBg.value },
         ducking: { mode: dMode.value, duckedLevel: dLevel.value, fadeOutSeconds: Number(dOut.value), fadeInSeconds: Number(dIn.value), silenceBeforePrioritySeconds: Number(dSilB.value), silenceAfterSeconds: Number(dSilA.value), resumeBackgroundBetweenAdRepeats: dResume.checked, pauseBackgroundDuringAdhan: dAdhanPause.checked },
         timeWindow: { enabled: twEn.checked, start: twStart.value, end: twEnd.value, applyTo: Object.fromEntries(Object.entries(ap).map(([k, t]) => [k, t.checked])) },
         reliability: { missedEventGraceMinutes: Number(grace.value), preventSleep: sleep.checked },
@@ -77,8 +74,8 @@
           sec.hasPassword ? h('button.btn.ghost', { onclick: async () => { await call('security:lock'); render(); } }, icon('lock'), 'قفل') : null,
           h('button.btn.primary.big', { onclick: save }, 'حفظ الإعدادات'))),
       h('div.grid.cols-2',
-        h('div.card', h('div.card-title', h('h2', 'مستويات الصوت')), h('div.stack', vMaster, vAdhan, vAds, vAzkar, vBg),
-          h('div.hint', { style: { marginTop: '8px' } }, 'الصوت الفعلي = المستوى العام × مستوى النوع.')),
+        h('div.card', h('div.card-title', h('h2', 'مستويات الصوت')), volPanel.el,
+          h('div.hint', { style: { marginTop: '8px' } }, 'الصوت الفعلي = المستوى العام × مستوى النوع. التغيير يُطبَّق فوراً ويُحفظ تلقائياً، وهي نفس لوحة التحكم الموجودة في نافذة المتصفح.')),
         h('div.card', h('div.card-title', h('h2', 'خفض الصوت التلقائي (Ducking)')),
           h('div.stack',
             App.field('طريقة التعامل مع الخلفية', dMode),
@@ -154,6 +151,7 @@
 
   App.screens.settings = {
     async mount(el) { root = el; el.style.position = 'relative'; await render(); },
-    unmount() { if (root) root.style.position = ''; root = null; },
+    unmount() { if (root) root.style.position = ''; root = null; volPanel = null; },
+    onState(s) { if (volPanel && root && root.contains(volPanel.el)) volPanel.update(s); },
   };
 })();
