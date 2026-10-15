@@ -13,6 +13,7 @@
       refs = {};
       el.append(
         h('div.page-head', h('div', h('h1', 'لوحة التحكم'), h('p', 'منظم الإعلانات والأذان والأذكار — الرمادي'))),
+        refs.issues = h('div', { style: { marginBottom: '12px' } }),
         h('div.hero',
           h('div.card.status-card',
             h('div.status-line', refs.dot = h('span.status-dot'), refs.statusText = h('span.status-text', '…')),
@@ -37,6 +38,13 @@
     unmount() { refs = null; },
     onState(s) {
       if (!refs) return;
+      const issuesKey = JSON.stringify(s.preAdhanIssues || []);
+      if (refs.issues.dataset.k !== issuesKey) {
+        refs.issues.dataset.k = issuesKey;
+        refs.issues.replaceChildren((s.preAdhanIssues || []).length
+          ? App.notice('bad', h('div', s.preAdhanIssues.map((i) => h('div', i.text)), h('button.btn.sm', { style: { marginTop: '6px' }, onclick: () => App.go('prayers') }, 'فتح المواقيت والأذان')))
+          : null);
+      }
       const stopped = s.status === 'stopped';
       refs.dot.classList.toggle('stopped', stopped);
       refs.statusText.textContent = stopped ? 'متوقف (إيقاف طارئ)' : 'يعمل بشكل طبيعي';

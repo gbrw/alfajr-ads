@@ -25,6 +25,7 @@ const { AdBlock } = require('./adblock');
 const { Extensions } = require('./extensions');
 const { NetMonitor } = require('./netmon');
 const { Security } = require('./security');
+const V = require('./volume');
 
 app.setAppUserModelId('com.alfajr.adsmanager');
 // يعمل البرنامج طوال اليوم من شريط النظام: لا نسمح لـ Chromium بإبطاء الصفحات المخفية/المحجوبة
@@ -216,6 +217,13 @@ async function initEngines() {
   ctx.playback.on('alert', alert);
   ctx.background.on('alert', alert);
   ctx.playback.on('state', () => ctx.refreshTray?.());
+  ctx.browser.on('signin-blocked', () => send('alert', { level: 'warn', message: 'رفضت Google تسجيل الدخول من المتصفح المدمج — افتح "حساب Google" في شاشة المتصفح لرؤية البدائل' }));
+
+  // المستويات والكتم المحفوظة تُطبَّق من أول لحظة
+  await ctx.playback.applyVolumes();
+  const issues = preAdhanIssues();
+  for (const i of issues) logger.warn('preadhan', i.text, { status: 'fail' });
+  if (issues.length) setTimeout(() => send('alert', { level: 'warn', message: issues.map((i) => i.text).join(' — ') }), 4000);
 
   // مدد الملفات الصوتية (للعرض وكشف التعارض)
   refreshDurations().catch(() => {});
@@ -249,6 +257,10 @@ async function refreshDurations() {
       if (dur != null) ctx.db.update((dd) => { dd.audioMeta[f] = { duration: dur }; });
     } catch { /* ملف تالف أو مفقود — يُسجَّل عند التشغيل */ }
   }
+}
+
+function preAdhanIssues() {
+  return planner.preAdhanIssues(ctx.db.get(), (rel) => library.exists(rel));
 }
 
 // ───── إرسال للواجهة ─────
@@ -291,6 +303,8 @@ function snapshot() {
     timeWindow: d.settings.timeWindow,
     insideWindow: planner.windowAllows(d.settings, 'ads', now),
     security: ctx.security.status(),
+    audio: { volume: d.settings.volume, mute: d.settings.mute },
+    preAdhanIssues: preAdhanIssues(),
   };
 }
 
@@ -313,7 +327,7 @@ function dbView() {
   return {
     settings, prayers: d.prayers, prayerOffsets: d.prayerOffsets, prayerTimesSource: d.prayerTimesSource,
     ads: d.ads, azkar: d.azkar, localBackground: d.localBackground, audioMeta: d.audioMeta,
-    extensions: ctx.extensions.list(), meta: d.meta,
+    extensions: ctx.extensions.list(), meta: d.meta, preAdhanIssues: preAdhanIssues(),
     fileExists: Object.fromEntries(collectFiles(d).map((f) => [f, library.exists(f)])),
   };
 }
@@ -344,6 +358,16 @@ function registerIpc() {
   handle('control:mute', (m) => ctx.playback.setMuted(m));
   handle('control:skip', () => ctx.playback.skipCurrent());
 
+  // ── مستويات الصوت (لوحة التحكم في نافذة المتصفح) — تُطبَّق فوراً وتُحفظ تلقائياً ──
+  const volLogTimers = {};
+  handle('volume:set', async (cls, level) => {
+    await ctx.playback.setClassVolume(cls, level);
+    clearTimeout(volLogTimers[cls]);
+    volLogTimers[cls] = setTimeout(() => logger.info('settings', `مستوى ${V.NAMES[cls]}: ${Math.round(db.get().settings.volume[cls] * 100)}%`), 1500);
+    return true;
+  });
+  handle('volume:mute', (cls, muted) => ctx.playback.setClassMuted(cls, muted));
+
   // ── الملفات ──
   handle('files:pick', async (category, multi = false) => {
     const r = await dialog.showOpenDialog(mainWindow, {
@@ -368,7 +392,7 @@ function registerIpc() {
     const before = JSON.stringify(db.get().settings.startup) + db.get().settings.reliability.preventSleep;
     db.update((d) => {
       const s = d.settings;
-      if (patch.volume) for (const k of Object.keys(s.volume)) if (patch.volume[k] != null) s.volume[k] = Math.max(0, Math.min(1, Number(patch.volume[k])));
+      if (patch.volume) for (const k of V.KEYS) if (patch.volume[k] != null) s.volume[k] = V.clamp(patch.volume[k]);
       if (patch.ducking) {
         const dk = patch.ducking;
         for (const k of ['fadeOutSeconds', 'fadeInSeconds', 'silenceBeforePrioritySeconds', 'silenceAfterSeconds']) if (dk[k] != null) s.ducking[k] = Math.max(0, Math.min(30, Number(dk[k])));
@@ -395,7 +419,7 @@ function registerIpc() {
       if (patch.city) s.city = String(patch.city);
     }, { immediate: true });
     if (before !== JSON.stringify(db.get().settings.startup) + db.get().settings.reliability.preventSleep) { applyStartupSetting(); applySleepSetting(); }
-    ctx.background.applyLevel(400).catch(() => {});
+    ctx.playback.applyVolumes().catch(() => {});
     logger.info('settings', 'تم حفظ الإعدادات بنجاح', { status: 'success' });
     return true;
   }, { protectedOp: true });
@@ -493,7 +517,7 @@ function registerIpc() {
     const ad = db.get().ads.find((a) => a.id === id);
     if (!ad) throw new Error('الإعلان غير موجود');
     ctx.playback.enqueue({
-      id: `manual|ad|${id}|${Date.now()}`, type: 'ad', priority: ad.priority === 'emergency' ? 1 : 3, label: `إعلان: ${ad.name}`,
+      id: `manual|ad|${id}|${Date.now()}`, type: 'ad', priority: ad.priority === 'emergency' ? planner.PRIORITY.emergencyAd : planner.PRIORITY.ad, label: `إعلان: ${ad.name}`,
       audio: ad.audio, refId: id, repeatCount: 1, repeatIntervalSeconds: 0, windowClass: 'ads', volumeClass: 'ads', sec: T.secondsOfDay(clock.now()),
     }, { manual: true });
     return true;
@@ -520,7 +544,7 @@ function registerIpc() {
   handle('azkar:playNow', (id) => {
     const z = db.get().azkar.find((a) => a.id === id);
     if (!z) throw new Error('الذكر غير موجود');
-    ctx.playback.enqueue({ id: `manual|azkar|${id}|${Date.now()}`, type: 'azkar', priority: 2, label: z.name, audio: z.audio, refId: id,
+    ctx.playback.enqueue({ id: `manual|azkar|${id}|${Date.now()}`, type: 'azkar', priority: planner.PRIORITY.azkar, label: z.name, audio: z.audio, refId: id,
       repeatCount: 1, repeatIntervalSeconds: 0, windowClass: 'azkar', volumeClass: 'azkar', sec: T.secondsOfDay(clock.now()) }, { manual: true });
     return true;
   });
@@ -606,6 +630,16 @@ function registerIpc() {
   handle('browser:action', async (a) => { if (a !== 'stop') await preferBrowser(); return ctx.browser.action(a); });
   handle('browser:bounds', (rect) => ctx.browser.setBounds(rect));
   handle('browser:hide', () => ctx.browser.hide());
+  handle('browser:signIn', async () => { await preferBrowser(); ctx.browser.signIn(); return true; });
+  handle('browser:signOut', () => ctx.browser.signOut());
+  handle('browser:signInStatus', () => ctx.browser.refreshSignIn());
+  // البديل المدعوم من Google: متصفح النظام الافتراضي (Chrome/Edge)
+  handle('browser:openExternal', (url) => {
+    const u = String(url || ctx.browser.state().url || 'https://www.youtube.com/');
+    if (!/^https:\/\//i.test(u)) throw new Error('رابط غير مسموح');
+    logger.info('background', 'فتح في متصفح النظام: ' + u);
+    return shell.openExternal(u);
+  });
 
   // ── الإضافات ومانع الإعلانات ──
   handle('ext:list', () => ({ extensions: ctx.extensions.list(), adblock: ctx.adblock.state() }));
@@ -664,7 +698,7 @@ function registerIpc() {
       backup.restoreBackup(r.filePaths[0]);
     } catch (e) { db.frozen = false; throw e; }
     logger.info('backup', 'تمت الاستعادة من نسخة احتياطية: ' + path.basename(r.filePaths[0]) + ' — إعادة التشغيل', { status: 'success' });
-    setTimeout(() => { quitting = true; app.relaunch(); app.exit(0); }, 500);
+    setTimeout(async () => { quitting = true; await ctx.browser?.flushSession(); app.relaunch(); app.exit(0); }, 500);
     return true;
   }, { protectedOp: true });
   handle('migration:importFolder', async () => {
@@ -714,9 +748,18 @@ app.whenReady().then(async () => {
   dialog.showErrorBox('Ads Alfajr Manager', 'حدث خطأ أثناء بدء التشغيل:\n' + e.message);
 });
 
-app.on('before-quit', () => {
+let sessionFlushed = false;
+app.on('before-quit', (e) => {
   quitting = true;
-  try { logger.info('system', 'إيقاف البرنامج'); ctx.db?.saveNow(); } catch { /* ignore */ }
+  if (!sessionFlushed) {
+    try { logger.info('system', 'إيقاف البرنامج'); ctx.db?.saveNow(); } catch { /* ignore */ }
+  }
+  // كتابة كوكيز تسجيل الدخول إلى القرص قبل الخروج (حتى تبقى جلسة Google/YouTube)
+  if (!sessionFlushed && ctx.browser) {
+    sessionFlushed = true;
+    e.preventDefault();
+    Promise.race([ctx.browser.flushSession(), new Promise((r) => setTimeout(r, 3000))]).finally(() => app.quit());
+  }
 });
 
 app.on('window-all-closed', () => { /* يبقى في شريط النظام */ });
