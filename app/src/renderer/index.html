@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; media-src 'self' file:; img-src 'self' data:; font-src 'self'">
+  <title>Ads Alfajr Manager — منظم الإذاعة الداخلية</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true"></div>
+        <div>
+          <div class="brand-title">Ads Alfajr Manager</div>
+          <div class="brand-sub">الإذاعة الداخلية — الفجر هايبر ماركت</div>
+        </div>
+      </div>
+      <nav class="nav" id="nav"></nav>
+      <div class="side-foot" id="side-foot"></div>
+    </aside>
+
+    <header class="header">
+      <div class="clock">
+        <span class="time" id="hdr-clock">--:--:-- --</span>
+        <span class="date" id="hdr-date"></span>
+      </div>
+      <span class="chip big ok" id="hdr-status"><span class="dot"></span><span>يعمل بشكل طبيعي</span></span>
+      <div class="next-pill" id="hdr-next"><span class="muted">الحدث التالي</span><span class="lbl">—</span><span class="cd time"></span></div>
+      <div class="spacer"></div>
+      <span class="chip" id="hdr-net" title="حالة الاتصال بالإنترنت"></span>
+      <button class="btn" id="btn-mute" title="كتم كل الأصوات"></button>
+      <button class="btn danger" id="btn-emergency"></button>
+    </header>
+
+    <main class="main" id="view"></main>
+  </div>
+  <div class="toasts" id="toasts"></div>
+
+  <script src="../shared/time12.js"></script>
+  <script src="app.js"></script>
+  <script src="screens/dashboard.js"></script>
+  <script src="screens/browser.js"></script>
+  <script src="screens/prayers.js"></script>
+  <script src="screens/ads.js"></script>
+  <script src="screens/azkar.js"></script>
+  <script src="screens/local.js"></script>
+  <script src="screens/extensions.js"></script>
+  <script src="screens/logs.js"></script>
+  <script src="screens/settings.js"></script>
+  <script src="boot.js"></script>
+</body>
+</html>

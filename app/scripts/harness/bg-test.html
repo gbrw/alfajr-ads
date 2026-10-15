@@ -1,0 +1,9 @@
+<!doctype html><html><body style="background:#111;color:#eee;font:20px sans-serif">
+<p>صفحة اختبار الخلفية</p>
+<audio id="a" loop controls></audio>
+<script>
+const a = document.getElementById('a');
+a.src = new URLSearchParams(location.search).get('src');
+a.volume = 1;
+a.play();
+</script></body></html>

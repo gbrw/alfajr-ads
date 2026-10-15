@@ -1,0 +1,57 @@
+[
+  {
+    "key": "fajr",
+    "name": "الفجر",
+    "enabled": false,
+    "audio": "assets/adhan/adhan_iraqi_azzawi.mp3",
+    "preAdhan": {
+      "enabled": true,
+      "minutesBefore": 10,
+      "audio": null
+    }
+  },
+  {
+    "key": "dhuhr",
+    "name": "الظهر",
+    "enabled": true,
+    "audio": "assets/adhan/adhan_iraqi_azzawi.mp3",
+    "preAdhan": {
+      "enabled": true,
+      "minutesBefore": 10,
+      "audio": "assets/pre-adhan/dhuhr.wav"
+    }
+  },
+  {
+    "key": "asr",
+    "name": "العصر",
+    "enabled": true,
+    "audio": "assets/adhan/adhan_iraqi_azzawi.mp3",
+    "preAdhan": {
+      "enabled": true,
+      "minutesBefore": 10,
+      "audio": "assets/pre-adhan/asr.wav"
+    }
+  },
+  {
+    "key": "maghrib",
+    "name": "المغرب",
+    "enabled": true,
+    "audio": "assets/adhan/adhan_iraqi_azzawi.mp3",
+    "preAdhan": {
+      "enabled": true,
+      "minutesBefore": 10,
+      "audio": "assets/pre-adhan/maghrib.wav"
+    }
+  },
+  {
+    "key": "isha",
+    "name": "العشاء",
+    "enabled": true,
+    "audio": "assets/adhan/adhan_iraqi_azzawi.mp3",
+    "preAdhan": {
+      "enabled": true,
+      "minutesBefore": 10,
+      "audio": "assets/pre-adhan/isha.wav"
+    }
+  }
+]

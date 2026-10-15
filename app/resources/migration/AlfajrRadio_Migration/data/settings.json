@@ -1,0 +1,28 @@
+{
+  "volume": {
+    "master": 0.7,
+    "ads": 0.7,
+    "azkar": 0.7,
+    "background": 0.7
+  },
+  "ducking": {
+    "duckedLevel": 0.4,
+    "fadeOutSeconds": 3,
+    "fadeInSeconds": 3,
+    "silenceBeforePrioritySeconds": 2,
+    "resumeBackgroundBetweenAdRepeats": true
+  },
+  "timeWindow": {
+    "enabled": true,
+    "start": "07:00 AM",
+    "end": "12:00 AM"
+  },
+  "display": {
+    "clockFormat": "12h",
+    "note": "12-hour with AM/PM everywhere; no 24-hour option"
+  },
+  "startup": {
+    "runOnWindowsStartup": true,
+    "autoDailyPrayerImport": true
+  }
+}

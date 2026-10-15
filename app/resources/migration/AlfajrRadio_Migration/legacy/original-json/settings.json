@@ -1,0 +1,19 @@
+{
+  "Volume": 0.7000000000000001,
+  "QuranVolume": 0.7000000000000001,
+  "AzkarVolume": 0.7000000000000001,
+  "AdsVolume": 0.7000000000000001,
+  "FadeInDuration": 3,
+  "FadeOutDuration": 3,
+  "Is12HourFormat": true,
+  "AutoExcelFilePath": "C:\\Users\\FJR\\Desktop\\Alfajr Radio\\ads manager\\ads manager\\\u0627\u0648\u0642\u0627\u062A \u0627\u0644\u0635\u0644\u0627\u0629.xlsx",
+  "AutoDailyImport": true,
+  "LastUpdateDate": "2026-10-09T00:00:00+03:00",
+  "RunOnStartup": true,
+  "QuranPauseDelay": 2,
+  "ResumeQuranDuringAdInterval": true,
+  "ExternalVolume": 0.4,
+  "EnableTimeWindow": true,
+  "AllowedStartTime": "07:00 AM",
+  "AllowedEndTime": "12:00 AM"
+}

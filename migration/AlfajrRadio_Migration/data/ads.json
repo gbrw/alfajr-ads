@@ -1,0 +1,12 @@
+[
+  {
+    "id": "a0a3a3bd-7313-448c-a6eb-b2af2b79867b",
+    "name": "الاغلاق",
+    "audio": "assets/ads/ad_closing.wav",
+    "playTime": "11:40 PM",
+    "repeatCount": 3,
+    "repeatIntervalSeconds": 300,
+    "enabled": true,
+    "priority": "normal"
+  }
+]

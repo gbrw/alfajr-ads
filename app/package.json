@@ -1,0 +1,99 @@
+{
+  "name": "ads-alfajr-manager",
+  "productName": "Ads Alfajr Manager",
+  "version": "2.0.0",
+  "description": "منظم الإذاعة الداخلية - الفجر هايبر ماركت",
+  "main": "src/main/main.js",
+  "author": "Alfajr Hypermarket",
+  "license": "UNLICENSED",
+  "private": true,
+  "dependencies": {
+    "@ghostery/adblocker-electron": "^2.20.1",
+    "adm-zip": "^0.6.1",
+    "exceljs": "^4.4.0",
+    "tldts-experimental": "^7.4.18"
+  },
+  "devDependencies": {
+    "electron": "^44.7.0",
+    "electron-builder": "^26.15.3"
+  },
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test tests/",
+    "fetch:ublock": "node scripts/fetch-ublock.js",
+    "build:adblock": "node scripts/build-adblock-engine.js",
+    "make:icons": "electron scripts/make-icons.js",
+    "dist": "electron-builder --win nsis --x64"
+  },
+  "build": {
+    "appId": "com.alfajr.adsmanager",
+    "productName": "Ads Alfajr Manager",
+    "copyright": "Alfajr Hypermarket",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json",
+      "node_modules/**/*",
+      "!scripts/**",
+      "!tests/**",
+      "!resources/**"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/extensions",
+        "to": "bundled/extensions"
+      },
+      {
+        "from": "resources/adblock",
+        "to": "bundled/adblock"
+      },
+      {
+        "from": "resources/migration",
+        "to": "bundled/migration"
+      },
+      {
+        "from": "build/icon.png",
+        "to": "bundled/icons/icon.png"
+      },
+      {
+        "from": "build/tray.png",
+        "to": "bundled/icons/tray.png"
+      }
+    ],
+    "asar": true,
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "executableName": "AdsAlfajrManager"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Ads Alfajr Manager",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "AdsAlfajrManager-Setup-${version}.exe",
+      "language": "1025",
+      "installerLanguages": [
+        "ar_SA",
+        "en_US"
+      ],
+      "multiLanguageInstaller": false
+    }
+  }
+}

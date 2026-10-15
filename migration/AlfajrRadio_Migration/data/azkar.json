@@ -1,0 +1,26 @@
+[
+  {
+    "id": "morning_azkar",
+    "name": "أذكار الصباح",
+    "audio": "assets/azkar/azkar_morning_alnafees.mp3",
+    "schedule": {
+      "anchor": "sunrise",
+      "direction": "after",
+      "offsetMinutes": 30,
+      "offsetEditableByAdmin": true
+    },
+    "enabled": true
+  },
+  {
+    "id": "evening_azkar",
+    "name": "أذكار المساء",
+    "audio": "assets/azkar/azkar_evening_alnafees.mp3",
+    "schedule": {
+      "anchor": "maghrib",
+      "direction": "after",
+      "offsetMinutes": 15,
+      "offsetEditableByAdmin": true
+    },
+    "enabled": true
+  }
+]
