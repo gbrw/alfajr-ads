@@ -94,7 +94,8 @@ function initCore() {
 function applyStartupSetting() {
   const on = !!ctx.db.get().settings.startup.runOnWindowsStartup;
   if (!app.isPackaged) return; // في وضع التطوير لا نسجّل electron.exe في بدء التشغيل
-  app.setLoginItemSettings({ openAtLogin: on, path: process.execPath, args: ['--hidden'] });
+  // التشغيل مع Windows يُظهر النافذة مكبّرة على كامل الشاشة (لا يبقى مخفياً في شريط النظام)
+  app.setLoginItemSettings({ openAtLogin: on, path: process.execPath, args: ['--autostart'] });
 }
 
 function applySleepSetting() {
@@ -121,8 +122,13 @@ function createMainWindow() {
   });
   Menu.setApplicationMenu(null);
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
-  const hidden = process.argv.includes('--hidden');
-  mainWindow.once('ready-to-show', () => { if (!hidden) mainWindow.show(); });
+  // يظهر دائماً مكبّراً عند الإقلاع، سواء فُتح يدوياً أو تلقائياً مع Windows
+  // (--hidden من إصدارات سابقة مسجّل في بدء التشغيل؛ يُعامل مثل التشغيل العادي ثم يُستبدل)
+  mainWindow.once('ready-to-show', () => { mainWindow.maximize(); mainWindow.show(); mainWindow.focus(); });
+  // F11: ملء الشاشة الكامل (بدون شريط مهام Windows) والعودة منه
+  mainWindow.webContents.on('before-input-event', (e, input) => {
+    if (input.type === 'keyDown' && input.key === 'F11') { e.preventDefault(); mainWindow.setFullScreen(!mainWindow.isFullScreen()); }
+  });
   mainWindow.on('close', (e) => {
     if (!quitting) {
       e.preventDefault();
